@@ -25,6 +25,19 @@ ship. CI runs the same plus links, secrets and the deploy.
 `spec/README.md`, `PROCESS.md` and `reflections/README.md` are in this repo and
 say what they are for.
 
+## C5 game harness
+
+- The shipped game teaches through motion and consequence. Do not add control
+  copy, a how-to modal, an instructions page, or a README substitute for one.
+- The player gets one continuous stroke per attempt. New mechanics must change
+  what that stroke means, not add buttons or a second control scheme.
+- Rules live as pure transitions in `game.ts`; canvas physics reports events to
+  them. A collision may not be decided only inside rendering code.
+- A round must visibly end, and all six levels must remain completable inside
+  five minutes at both marking viewports.
+- Never accept a visual check in place of exercising the finished input loop.
+  Run the game with mouse and touch-sized viewports and inspect the console.
+
 ## This file is yours
 
 A starting point, not a rulebook: what you add to it is the harness, and the
