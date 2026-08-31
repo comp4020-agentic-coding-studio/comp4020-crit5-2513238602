@@ -7,6 +7,12 @@ import {
   tickRound,
   type GameState,
 } from "./game.ts";
+import {
+  LEVELS as CHALLENGE_LEVELS,
+  chooseRouteTarget,
+  type BeeRole,
+  type LevelMechanic,
+} from "./challenge.ts";
 
 const canvasElement = document.querySelector<HTMLCanvasElement>("#game");
 if (!canvasElement) throw new Error("missing #game canvas");
@@ -41,27 +47,27 @@ interface Barrier {
   braces: Array<{ a: number; b: number; length: number }>;
   closed: boolean;
   closingLength: number;
+  anchored: boolean;
 }
 
 interface Bee extends Point {
   vx: number;
   vy: number;
   phase: number;
-}
-
-interface LevelDefinition {
-  dog: Point;
-  hives: Point[];
-  terrain: Rect[];
-  anchors: Point[];
-  ink: number;
-  speed: number;
-  spawnEvery: number;
-  wind: number;
+  role: BeeRole;
+  age: number;
+  side: -1 | 1;
+  probeTarget: Point | null;
+  probeClock: number;
+  sampleClock: number;
+  sampleX: number;
+  sampleY: number;
+  stalledFor: number;
 }
 
 interface LevelRuntime {
   dog: Point;
+  dogBase: Point;
   hives: Point[];
   terrain: Rect[];
   anchors: Point[];
@@ -69,104 +75,19 @@ interface LevelRuntime {
   beeSpeed: number;
   spawnEvery: number;
   wind: number;
+  roles: BeeRole[];
+  mechanic: LevelMechanic;
+  dogMotion?: { amplitude: number; period: number };
 }
-
-const LEVELS: LevelDefinition[] = [
-  {
-    dog: { x: 0.38, y: 0.72 },
-    hives: [{ x: 0.82, y: 0.34 }],
-    terrain: [{ x: 0, y: 0.82, width: 1, height: 0.18 }],
-    anchors: [],
-    ink: 1.28,
-    speed: 0.82,
-    spawnEvery: 0.72,
-    wind: 0,
-  },
-  {
-    dog: { x: 0.5, y: 0.73 },
-    hives: [{ x: 0.5, y: 0.14 }],
-    terrain: [
-      { x: 0, y: 0.83, width: 1, height: 0.17 },
-      { x: 0.08, y: 0.47, width: 0.3, height: 0.035 },
-      { x: 0.62, y: 0.47, width: 0.3, height: 0.035 },
-    ],
-    anchors: [
-      { x: 0.37, y: 0.46 },
-      { x: 0.63, y: 0.46 },
-    ],
-    ink: 1.16,
-    speed: 0.9,
-    spawnEvery: 0.64,
-    wind: 0,
-  },
-  {
-    dog: { x: 0.27, y: 0.69 },
-    hives: [{ x: 0.84, y: 0.29 }],
-    terrain: [
-      { x: 0, y: 0.83, width: 1, height: 0.17 },
-      { x: 0.5, y: 0.58, width: 0.055, height: 0.25 },
-    ],
-    anchors: [{ x: 0.53, y: 0.56 }],
-    ink: 1.05,
-    speed: 0.96,
-    spawnEvery: 0.58,
-    wind: 0,
-  },
-  {
-    dog: { x: 0.69, y: 0.72 },
-    hives: [{ x: 0.15, y: 0.31 }],
-    terrain: [
-      { x: 0, y: 0.83, width: 1, height: 0.17 },
-      { x: 0.44, y: 0.36, width: 0.045, height: 0.47 },
-    ],
-    anchors: [{ x: 0.46, y: 0.34 }],
-    ink: 1.25,
-    speed: 1,
-    spawnEvery: 0.54,
-    wind: 0.34,
-  },
-  {
-    dog: { x: 0.5, y: 0.71 },
-    hives: [
-      { x: 0.13, y: 0.31 },
-      { x: 0.87, y: 0.31 },
-    ],
-    terrain: [{ x: 0, y: 0.83, width: 1, height: 0.17 }],
-    anchors: [
-      { x: 0.28, y: 0.48 },
-      { x: 0.72, y: 0.48 },
-    ],
-    ink: 1.48,
-    speed: 1.06,
-    spawnEvery: 0.48,
-    wind: 0,
-  },
-  {
-    dog: { x: 0.5, y: 0.7 },
-    hives: [
-      { x: 0.16, y: 0.18 },
-      { x: 0.84, y: 0.18 },
-    ],
-    terrain: [
-      { x: 0, y: 0.84, width: 1, height: 0.16 },
-      { x: 0.23, y: 0.55, width: 0.05, height: 0.29 },
-      { x: 0.72, y: 0.55, width: 0.05, height: 0.29 },
-    ],
-    anchors: [
-      { x: 0.25, y: 0.53 },
-      { x: 0.75, y: 0.53 },
-    ],
-    ink: 1.38,
-    speed: 1.14,
-    spawnEvery: 0.4,
-    wind: 0.2,
-  },
-];
 
 let width = 1;
 let height = 1;
 let dpr = 1;
-let gameState: GameState = createGameState();
+const requestedQaLevel = Number(new URLSearchParams(window.location.search).get("qaLevel"));
+const initialLevel = window.location.hostname === "127.0.0.1" && Number.isInteger(requestedQaLevel)
+  ? Math.min(LEVEL_COUNT - 1, Math.max(0, requestedQaLevel))
+  : 0;
+let gameState: GameState = createGameState(initialLevel);
 let level = makeLevel(0);
 let rawStroke: Point[] = [];
 let barrier: Barrier | null = null;
@@ -178,6 +99,17 @@ let hiveCursor = 0;
 let lastFrameAt = 0;
 let accumulator = 0;
 let audio: AudioContext | null = null;
+const telemetry = {
+  level: 0,
+  mechanic: "crossfire" as LevelMechanic,
+  phase: gameState.phase,
+  elapsedMs: 0,
+  beeCount: 0,
+  maxObservedStall: 0,
+  lossElapsedMs: null as number | null,
+  anchoredBarrier: false,
+};
+(window as Window & { __oneLineTelemetry?: typeof telemetry }).__oneLineTelemetry = telemetry;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -188,10 +120,12 @@ function distance(a: Point, b: Point): number {
 }
 
 function makeLevel(index: number): LevelRuntime {
-  const source = LEVELS[index] ?? LEVELS[0];
+  const source = CHALLENGE_LEVELS[index] ?? CHALLENGE_LEVELS[0];
   const shortSide = Math.min(width, height);
+  const dog = { x: source.dog.x * width, y: source.dog.y * height };
   return {
-    dog: { x: source.dog.x * width, y: source.dog.y * height },
+    dog: { ...dog },
+    dogBase: dog,
     hives: source.hives.map((point) => ({ x: point.x * width, y: point.y * height })),
     terrain: source.terrain.map((rect) => ({
       x: rect.x * width,
@@ -201,9 +135,12 @@ function makeLevel(index: number): LevelRuntime {
     })),
     anchors: source.anchors.map((point) => ({ x: point.x * width, y: point.y * height })),
     inkLimit: source.ink * shortSide,
-    beeSpeed: (72 + shortSide * 0.13) * source.speed,
+    beeSpeed: shortSide * source.speed,
     spawnEvery: source.spawnEvery,
     wind: source.wind * shortSide,
+    roles: source.roles,
+    mechanic: source.mechanic,
+    dogMotion: source.dogMotion,
   };
 }
 
@@ -214,8 +151,16 @@ function resetLevel(): void {
   bees = [];
   isDrawing = false;
   inkUsed = 0;
-  spawnClock = 0;
+  spawnClock = level.spawnEvery;
   hiveCursor = 0;
+  telemetry.level = gameState.levelIndex;
+  telemetry.mechanic = level.mechanic;
+  telemetry.phase = gameState.phase;
+  telemetry.elapsedMs = 0;
+  telemetry.beeCount = 0;
+  telemetry.maxObservedStall = 0;
+  telemetry.lossElapsedMs = null;
+  telemetry.anchoredBarrier = false;
 }
 
 function resize(): void {
@@ -301,7 +246,8 @@ function buildBarrier(points: Point[]): Barrier | null {
     const other = (index + braceSpan) % ropePoints.length;
     braces.push({ a: index, b: other, length: distance(ropePoints[index], ropePoints[other]) });
   }
-  return { points: ropePoints, lengths, braces, closed, closingLength };
+  const anchored = ropePoints.filter((point) => point.pinned).length >= 2;
+  return { points: ropePoints, lengths, braces, closed, closingLength, anchored };
 }
 
 function appendStroke(target: Point): void {
@@ -391,8 +337,9 @@ function updateBarrier(dt: number): void {
 }
 
 function spawnBee(): void {
-  if (bees.length >= 18) return;
+  if (bees.length >= 24) return;
   const hive = level.hives[hiveCursor % level.hives.length];
+  const role = level.roles[hiveCursor % level.roles.length];
   hiveCursor += 1;
   const angle = (hiveCursor * 2.399) % (Math.PI * 2);
   bees.push({
@@ -401,6 +348,15 @@ function spawnBee(): void {
     vx: Math.cos(angle) * 12,
     vy: Math.sin(angle) * 12,
     phase: angle,
+    role,
+    age: 0,
+    side: hiveCursor % 2 === 0 ? 1 : -1,
+    probeTarget: null,
+    probeClock: 0,
+    sampleClock: 0,
+    sampleX: hive.x,
+    sampleY: hive.y,
+    stalledFor: 0,
   });
 }
 
@@ -412,8 +368,9 @@ function closestOnSegment(point: Point, a: Point, b: Point): { point: Point; rat
   return { point: { x: a.x + dx * ratio, y: a.y + dy * ratio }, ratio };
 }
 
-function collideBeeWithBarrier(bee: Bee): void {
-  if (!barrier || barrier.points.length < 2) return;
+function collideBeeWithBarrier(bee: Bee): boolean {
+  if (!barrier || barrier.points.length < 2) return false;
+  if (bee.role === "breaker" && !barrier.anchored) return false;
   const radius = Math.max(11, Math.min(width, height) * 0.026);
   const segmentCount = barrier.closed ? barrier.points.length : barrier.points.length - 1;
   for (let i = 0; i < segmentCount; i++) {
@@ -433,7 +390,7 @@ function collideBeeWithBarrier(bee: Bee): void {
       bee.vx -= 1.75 * incoming * nx;
       bee.vy -= 1.75 * incoming * ny;
     }
-    const push = 1.5;
+    const push = bee.role === "breaker" ? 5.5 : 1.5;
     if (!a.pinned) {
       a.x -= nx * push * (1 - closest.ratio);
       a.y -= ny * push * (1 - closest.ratio);
@@ -442,29 +399,63 @@ function collideBeeWithBarrier(bee: Bee): void {
       b.x -= nx * push * closest.ratio;
       b.y -= ny * push * closest.ratio;
     }
-    return;
+    const pointCount = barrier.points.length;
+    const probeIndex = barrier.closed
+      ? (i + bee.side * Math.min(9, Math.floor(pointCount / 4)) + pointCount) % pointCount
+      : bee.side > 0 ? pointCount - 1 : 0;
+    const probe = barrier.points[probeIndex];
+    const awayX = probe.x - level.dog.x;
+    const awayY = probe.y - level.dog.y;
+    const awayLength = Math.hypot(awayX, awayY) || 1;
+    bee.probeTarget = {
+      x: clamp(probe.x + (awayX / awayLength) * radius * 2.4, radius, width - radius),
+      y: clamp(probe.y + (awayY / awayLength) * radius * 2.4, radius, height - radius),
+    };
+    bee.probeClock = 1.1;
+    return true;
   }
+  return false;
 }
 
-function collideBeeWithTerrain(bee: Bee): void {
+function collideBeeWithTerrain(bee: Bee): boolean {
   const radius = Math.max(8, Math.min(width, height) * 0.019);
+  let collided = false;
   for (const rect of level.terrain) {
     const nearestX = clamp(bee.x, rect.x, rect.x + rect.width);
     const nearestY = clamp(bee.y, rect.y, rect.y + rect.height);
     const dx = bee.x - nearestX;
     const dy = bee.y - nearestY;
     const gap = Math.hypot(dx, dy);
-    if (gap >= radius || gap < 0.001) continue;
-    const nx = dx / gap;
-    const ny = dy / gap;
-    bee.x = nearestX + nx * radius;
-    bee.y = nearestY + ny * radius;
+    if (gap >= radius) continue;
+    let nx = gap > 0.001 ? dx / gap : 0;
+    let ny = gap > 0.001 ? dy / gap : 0;
+    if (gap < 0.001) {
+      const edges = [
+        { distance: Math.abs(bee.x - rect.x), nx: -1, ny: 0 },
+        { distance: Math.abs(rect.x + rect.width - bee.x), nx: 1, ny: 0 },
+        { distance: Math.abs(bee.y - rect.y), nx: 0, ny: -1 },
+        { distance: Math.abs(rect.y + rect.height - bee.y), nx: 0, ny: 1 },
+      ].sort((a, b) => a.distance - b.distance);
+      nx = edges[0].nx;
+      ny = edges[0].ny;
+    }
+    if (gap < 0.001) {
+      if (nx < 0) bee.x = rect.x - radius;
+      else if (nx > 0) bee.x = rect.x + rect.width + radius;
+      else if (ny < 0) bee.y = rect.y - radius;
+      else bee.y = rect.y + rect.height + radius;
+    } else {
+      bee.x = nearestX + nx * radius;
+      bee.y = nearestY + ny * radius;
+    }
     const incoming = bee.vx * nx + bee.vy * ny;
     if (incoming < 0) {
       bee.vx -= 1.8 * incoming * nx;
       bee.vy -= 1.8 * incoming * ny;
     }
+    collided = true;
   }
+  return collided;
 }
 
 function updateBees(dt: number): boolean {
@@ -476,18 +467,59 @@ function updateBees(dt: number): boolean {
   const dogRadius = clamp(Math.min(width, height) * 0.052, 20, 34);
   const beeRadius = Math.max(8, Math.min(width, height) * 0.019);
   for (const bee of bees) {
+    bee.age += dt;
     bee.phase += dt * 8;
-    const dx = level.dog.x - bee.x;
-    const dy = level.dog.y - bee.y;
+    bee.probeClock = Math.max(0, bee.probeClock - dt);
+    if (bee.probeClock === 0) bee.probeTarget = null;
+
+    let intendedTarget: Point = level.dog;
+    if (bee.probeTarget) intendedTarget = bee.probeTarget;
+    else if (bee.role === "flanker" && bee.age < 1.15) {
+      intendedTarget = {
+        x: clamp(level.dog.x + bee.side * dogRadius * 3.2, beeRadius, width - beeRadius),
+        y: clamp(level.dog.y - dogRadius * 2.4, beeRadius, height - beeRadius),
+      };
+    }
+    const routeTarget = chooseRouteTarget(bee, intendedTarget, level.terrain, bee.side, width, height);
+    const dx = routeTarget.x - bee.x;
+    const dy = routeTarget.y - bee.y;
     const gap = Math.hypot(dx, dy) || 1;
-    const targetVx = (dx / gap) * level.beeSpeed + Math.cos(bee.phase) * 18;
-    const targetVy = (dy / gap) * level.beeSpeed + Math.sin(bee.phase * 1.3) * 18;
-    bee.vx += (targetVx - bee.vx) * Math.min(1, dt * 2.6);
-    bee.vy += (targetVy - bee.vy) * Math.min(1, dt * 2.6);
+    const dogGap = distance(bee, level.dog);
+    const dash = dogGap < Math.min(width, height) * 0.28 ? 1.35 : 1;
+    const roleSpeed = bee.role === "breaker" ? 0.92 : bee.role === "flanker" ? 1.05 : 1;
+    const speed = level.beeSpeed * dash * roleSpeed;
+    const targetVx = (dx / gap) * speed + Math.cos(bee.phase) * speed * 0.035;
+    const targetVy = (dy / gap) * speed + Math.sin(bee.phase * 1.3) * speed * 0.035;
+    const turnRate = bee.role === "breaker" ? 3.2 : 5.2;
+    bee.vx += (targetVx - bee.vx) * Math.min(1, dt * turnRate);
+    bee.vy += (targetVy - bee.vy) * Math.min(1, dt * turnRate);
     bee.x += bee.vx * dt;
     bee.y += bee.vy * dt;
-    collideBeeWithTerrain(bee);
+    const terrainHit = collideBeeWithTerrain(bee);
     collideBeeWithBarrier(bee);
+
+    bee.sampleClock += dt;
+    if (bee.sampleClock >= 0.2) {
+      const travelled = Math.hypot(bee.x - bee.sampleX, bee.y - bee.sampleY);
+      bee.stalledFor = travelled < Math.max(3, beeRadius * 0.24) ? bee.stalledFor + bee.sampleClock : 0;
+      telemetry.maxObservedStall = Math.max(telemetry.maxObservedStall, bee.stalledFor);
+      bee.sampleX = bee.x;
+      bee.sampleY = bee.y;
+      bee.sampleClock = 0;
+      if (bee.stalledFor >= 0.6 || terrainHit) {
+        bee.side = bee.side === 1 ? -1 : 1;
+        bee.probeTarget = {
+          x: clamp(bee.x + bee.side * beeRadius * 7, beeRadius, width - beeRadius),
+          y: clamp(bee.y - beeRadius * 6, beeRadius, height - beeRadius),
+        };
+        bee.probeClock = 0.8;
+        bee.stalledFor = 0;
+      }
+    }
+    if (bee.x < beeRadius || bee.x > width - beeRadius) bee.vx *= -0.7;
+    if (bee.y < beeRadius || bee.y > height - beeRadius) bee.vy *= -0.7;
+    bee.x = clamp(bee.x, beeRadius, width - beeRadius);
+    bee.y = clamp(bee.y, beeRadius, height - beeRadius);
     if (distance(bee, level.dog) < dogRadius + beeRadius * 0.72) return true;
   }
   return false;
@@ -495,6 +527,10 @@ function updateBees(dt: number): boolean {
 
 function update(dt: number): void {
   if (gameState.phase !== "surviving") return;
+  if (level.dogMotion) {
+    const progress = gameState.elapsedMs / 1000 / level.dogMotion.period;
+    level.dog.x = level.dogBase.x + Math.sin(progress * Math.PI * 2) * level.dogMotion.amplitude * width;
+  }
   updateBarrier(dt);
   const previousPhase = gameState.phase;
   const beeHit = updateBees(dt);
@@ -504,6 +540,18 @@ function update(dt: number): void {
     inkUsed,
     inkLimit: level.inkLimit,
   });
+  telemetry.phase = gameState.phase;
+  telemetry.elapsedMs = gameState.elapsedMs;
+  telemetry.beeCount = bees.length;
+  telemetry.anchoredBarrier = barrier?.anchored ?? false;
+  if (gameState.phase === "lost") telemetry.lossElapsedMs = gameState.elapsedMs;
+  canvas.dataset.phase = telemetry.phase;
+  canvas.dataset.level = String(telemetry.level);
+  canvas.dataset.mechanic = telemetry.mechanic;
+  canvas.dataset.elapsedMs = String(Math.round(telemetry.elapsedMs));
+  canvas.dataset.beeCount = String(telemetry.beeCount);
+  canvas.dataset.maxBeeStall = telemetry.maxObservedStall.toFixed(2);
+  canvas.dataset.anchored = String(telemetry.anchoredBarrier);
   if (previousPhase !== gameState.phase) {
     if (gameState.phase === "lost") tone(92, 0.42, 0.14, "sawtooth");
     else {
@@ -586,7 +634,8 @@ function drawHive(hive: Point, now: number): void {
 }
 
 function drawBee(bee: Bee): void {
-  const size = Math.max(8, Math.min(width, height) * 0.019);
+  const baseSize = Math.max(8, Math.min(width, height) * 0.019);
+  const size = baseSize * (bee.role === "breaker" ? 1.42 : bee.role === "flanker" ? 0.9 : 1);
   draw.save();
   draw.translate(bee.x, bee.y);
   draw.rotate(Math.atan2(bee.vy, bee.vx));
@@ -595,7 +644,7 @@ function drawBee(bee: Bee): void {
   draw.ellipse(-2, -size * 0.72, size * 0.65, size * 0.38, -0.45, 0, Math.PI * 2);
   draw.ellipse(-2, size * 0.72, size * 0.65, size * 0.38, 0.45, 0, Math.PI * 2);
   draw.fill();
-  draw.fillStyle = "#f5c84b";
+  draw.fillStyle = bee.role === "breaker" ? "#ff806f" : bee.role === "flanker" ? "#ffe783" : "#f5c84b";
   draw.beginPath();
   draw.ellipse(0, 0, size, size * 0.62, 0, 0, Math.PI * 2);
   draw.fill();
