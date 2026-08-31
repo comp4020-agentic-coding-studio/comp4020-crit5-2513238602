@@ -1,8 +1,9 @@
-# COMP4020 prototype
+# One Line — Crit 5 harness
 
-Your starter repo for a COMP4020 prototype: a static site in HTML/CSS/TypeScript
-that builds to plain HTML/CSS/JS and deploys to GitHub Pages. The deployed site
-is what gets marked, not this repo.
+This COMP4020 prototype is a static HTML/CSS/TypeScript game that builds to
+plain assets and deploys to GitHub Pages. The deployed interaction is what gets
+marked, so every change must preserve the real pointer loop as well as the pure
+game rules.
 
 The
 [course website](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/)
