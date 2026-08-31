@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>COMP4020 prototype</title>
+    <title>One Line</title>
     <meta
       name="description"
-      content="Replace this with one sentence saying what this page is. A search result and a link preview both show it."
+      content="One stroke, one small dog, and five seconds of trouble."
     />
 
     <!--
@@ -21,17 +21,12 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header>
-      <nav aria-label="Primary">
-        <a href="./">Home</a>
-      </nav>
+    <header class="site-header">
+      <nav aria-label="Primary"><a href="./">ONE LINE</a></nav>
     </header>
-    <main>
-      <h1>COMP4020 prototype</h1>
-      <p>
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
-      </p>
+    <main class="game-shell">
+      <h1 class="visually-hidden">One Line</h1>
+      <canvas id="game" data-testid="game" aria-label="One Line"></canvas>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
