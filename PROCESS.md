@@ -2,7 +2,7 @@
 
 ## What I built
 
-**One Line** is a six-level browser game about drawing one continuous barrier around a dog before bees attack. The stroke is both the only control and a limited resource: releasing it starts a five-second survival round, and using less ink earns more stars. Terrain, anchors, wind, changing hive positions, clear loss/retry states, and a final score create variation without adding an instruction screen.
+**One Line** is a six-level browser game about drawing one continuous barrier around a dog before bees attack. The stroke is both the only control and a limited resource: releasing it starts a five-second survival round, and using less ink earns more stars. Strikers, flankers, and breakers now read terrain and probe barriers; the levels demand crossfire defence, anchoring, channel closure, moving-target coverage, breaker resistance, and a final four-direction wave.
 
 ## The moments that mattered
 
@@ -22,11 +22,17 @@ I removed the starter page and made the canvas the entire interaction surface. A
 
 The first finished desktop playtest exposed a mismatch the unit tests could not catch: a closed circle was recognised correctly, but the soft rope collapsed into a flat line under gravity. That made the result feel unrelated to the player's gesture. I changed the barrier to preserve local spans and return softly toward the drawn shape, while still allowing bee impacts to deform it. I then replayed the win and loss paths at 1920×1080 and 390×844, completed all six levels, reached the 13/18-star ending, and checked the console for warnings or errors. The resulting playtest-driven correction is included in [`672aa6a`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-2513238602/commit/672aa6a).
 
+### Replacing cosmetic difficulty with spatial decisions
+
+A second critique correctly identified that direct-homing bees often missed the dog, while every environment rewarded the same large circle. I froze measurable criteria before changing code: every undefended level must lose inside three seconds, a generic circle may clear at most two levels, no bee may stay stalled for more than 0.75 seconds, and every level needs two verified solutions. The new challenge contract first failed because `challenge.ts` did not exist, then went green in [`3e1cb7f`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-2513238602/commit/3e1cb7f). The AI and level rebuild landed in [`8617819`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-2513238602/commit/8617819). The first moving-platform roof still failed because flankers escaped around its sides, so I added a two-pillar chamber and reran both solutions rather than weakening the criterion. Final measured undefended loss times were 1.18–2.27 seconds; the circle cleared 2/6; all twelve desktop strategies and all six phone levels passed; maximum observed stall was 0.65 seconds.
+
+> “If it does not meet the acceptance standards, optimise again until it does.”
+
 ## Verification
 
 - `tsc --noEmit`
 - `vite build`
-- `vitest run` — 20 tests passed
-- Desktop playthrough at 1920×1080: win, loss/retry, all six levels, final score
-- Phone playthrough at 390×844: full input loop and successful round
+- `vitest run` — 23 tests passed
+- Desktop at 1920×1080: six undefended failures, twelve successful strategies, 2/6 generic-circle result
+- Phone at 390×844: all six level strategies passed through the real pointer loop
 - Browser console: no warnings or errors

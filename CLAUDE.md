@@ -38,6 +38,12 @@ say what they are for.
   five minutes at both marking viewports.
 - Never accept a visual check in place of exercising the finished input loop.
   Run the game with mouse and touch-sized viewports and inspect the console.
+- Reject any difficulty pass where an undefended level survives for three
+  seconds, a generic dog-sized circle clears more than two levels, or a bee
+  remains stalled for more than 0.75 seconds.
+- Every level needs two exercised solutions. Preserve the six distinct spatial
+  mechanics in `challenge.ts`; increasing speed or bee count is not a new
+  mechanic.
 
 ## This file is yours
 
